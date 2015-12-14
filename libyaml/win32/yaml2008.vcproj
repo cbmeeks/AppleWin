@@ -21,8 +21,7 @@
 			OutputDirectory="Output\Debug\lib"
 			IntermediateDirectory="Build\Debug\lib"
 			ConfigurationType="4"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC71.vsprops"
-			CharacterSet="2"
+			CharacterSet="0"
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
@@ -46,7 +45,7 @@
 				PreprocessorDefinitions="HAVE_CONFIG_H;YAML_DECLARE_STATIC;_CRT_SECURE_NO_WARNINGS"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
-				RuntimeLibrary="3"
+				RuntimeLibrary="1"
 				UsePrecompiledHeader="0"
 				WarningLevel="3"
 				Detect64BitPortabilityProblems="false"
@@ -86,8 +85,7 @@
 			OutputDirectory="Output\Release\lib"
 			IntermediateDirectory="Build\Release\lib"
 			ConfigurationType="4"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC71.vsprops"
-			CharacterSet="2"
+			CharacterSet="0"
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
@@ -108,7 +106,7 @@
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories=".;../include"
 				PreprocessorDefinitions="HAVE_CONFIG_H;YAML_DECLARE_STATIC;_CRT_SECURE_NO_WARNINGS"
-				RuntimeLibrary="2"
+				RuntimeLibrary="0"
 				UsePrecompiledHeader="0"
 				WarningLevel="3"
 				Detect64BitPortabilityProblems="false"

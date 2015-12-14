@@ -103,6 +103,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "Debugger\Debug.h"
 #include "SaveState_Structs_v2.h"
+#include "YamlHelper.h"
 
 
 #define	 AF_SIGN       0x80
@@ -655,6 +656,44 @@ void CpuSetSnapshot_v1(const BYTE A, const BYTE X, const BYTE Y, const BYTE P, c
 	CpuIrqReset();
 	CpuNmiReset();
 	g_nCumulativeCycles = CumulativeCycles;
+}
+
+//
+
+#define SS_YAML_KEY_REGA "A"
+#define SS_YAML_KEY_REGX "X"
+#define SS_YAML_KEY_REGY "Y"
+#define SS_YAML_KEY_REGP "P"
+#define SS_YAML_KEY_REGS "S"
+#define SS_YAML_KEY_REGPC "PC"
+#define SS_YAML_KEY_CUMULATIVECYCLES "CumulativeCycles"
+
+void CpuGetSnapshot(FILE* hFile)
+{
+	fprintf(hFile, "%s:\n", SS_YAML_KEY_CPU6502);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGA, regs.a);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGX, regs.x);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGY, regs.y);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGP, regs.ps);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGS, (BYTE) regs.sp);
+	fprintf(hFile, " %s: 0x%04X\n", SS_YAML_KEY_REGPC, regs.pc);
+	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_CUMULATIVECYCLES, g_nCumulativeCycles);
+}
+
+void CpuSetSnapshot(YamlHelper& yamlHelper)
+{
+	YamlHelper::YamlMap yamlMap(yamlHelper);
+
+	regs.a  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGA);
+	regs.x  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGX);
+	regs.y  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGY);
+	regs.ps = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGP);
+	regs.sp = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGS) + 0x100;
+	regs.pc = (SHORT) yamlMap.GetMapValueUINT(SS_YAML_KEY_REGPC);
+
+	CpuIrqReset();
+	CpuNmiReset();
+	g_nCumulativeCycles = yamlMap.GetMapValueUINT64(SS_YAML_KEY_CUMULATIVECYCLES);
 }
 
 //

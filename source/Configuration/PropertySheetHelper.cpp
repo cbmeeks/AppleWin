@@ -186,7 +186,7 @@ void CPropertySheetHelper::GetDiskBaseNameWithAWS(TCHAR* pszFilename)
 	if (pDiskName && pDiskName[0])
 	{
 		strcpy(pszFilename, pDiskName);
-		strcpy(&pszFilename[strlen(pDiskName)], ".aws");
+		strcpy(&pszFilename[strlen(pDiskName)], ".aws.yaml");
 	}
 }
 
@@ -230,7 +230,7 @@ int CPropertySheetHelper::SaveStateSelectImage(HWND hWindow, TCHAR* pszTitle, bo
 	ofn.lStructSize     = sizeof(OPENFILENAME);
 	ofn.hwndOwner       = hWindow;
 	ofn.hInstance       = g_hInstance;
-	ofn.lpstrFilter     =	TEXT("Save State files (*.aws)\0*.aws\0")
+	ofn.lpstrFilter     =	TEXT("Save State files (*.aws,*.aws.yaml)\0*.aws;*.aws.yaml\0")
 							TEXT("All Files\0*.*\0");
 	ofn.lpstrFile       = szFilename;
 	ofn.nMaxFile        = MAX_PATH;
@@ -245,7 +245,7 @@ int CPropertySheetHelper::SaveStateSelectImage(HWND hWindow, TCHAR* pszTitle, bo
 		if (bSave)	// Only for saving (allow loading of any file for backwards compatibility)
 		{
 			// Append .aws if it's not there
-			const char szAWS_EXT[] = ".aws";
+			const char szAWS_EXT[] = ".aws.yaml";
 			const UINT uStrLenFile = strlen(&szFilename[ofn.nFileOffset]);
 			const UINT uStrLenExt  = strlen(szAWS_EXT);
 			if ((uStrLenFile <= uStrLenExt) || (strcmp(&szFilename[ofn.nFileOffset+uStrLenFile-uStrLenExt], szAWS_EXT) != 0))

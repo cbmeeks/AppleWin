@@ -30,6 +30,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "SaveState_Structs_v1.h"
 #include "SaveState_Structs_v2.h"
+#include "YamlHelper.h"
 
 #include "AppleWin.h"
 #include "CPU.h"
@@ -52,13 +53,15 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "Configuration\IPropertySheet.h"
 
 
-#define DEFAULT_SNAPSHOT_NAME "SaveState.aws"
+#define DEFAULT_SNAPSHOT_NAME "SaveState.aws.yaml"
 
 bool g_bSaveStateOnExit = false;
 
 static std::string g_strSaveStateFilename;
 static std::string g_strSaveStatePathname;
 static std::string g_strSaveStatePath;
+
+static YamlHelper yamlHelper;
 
 //-----------------------------------------------------------------------------
 
@@ -490,6 +493,107 @@ static void LoadUnitConfig(DWORD Length, DWORD Version)
 	sg_PropertySheet.SetTheFreezesF8Rom(Config.Cfg.IsUsingFreezesF8Rom);
 }
 
+//---
+
+static UINT ParseFileHdr(void)
+{
+	std::string scalar;
+	if (!yamlHelper.GetScalar(scalar))
+		throw std::string(SS_YAML_KEY_FILEHDR ": Failed to find scalar");
+
+	if (scalar != SS_YAML_KEY_FILEHDR)
+		throw std::string("Failed to find file header");
+
+	//
+
+	YamlHelper::YamlMap yamlMap(yamlHelper);
+
+	std::string value = yamlMap.GetMapValueSTRING(SS_YAML_KEY_TAG);
+	if (value != SS_YAML_VALUE_AWSS)
+	{
+		//printf("%s: Bad tag (%s) - expected %s\n", SS_YAML_KEY_FILEHDR, value.c_str(), SS_YAML_VALUE_AWSS);
+		throw std::string(SS_YAML_KEY_FILEHDR ": Bad tag");
+	}
+
+	return yamlMap.GetMapValueUINT(SS_YAML_KEY_VERSION);
+}
+
+//---
+
+struct UnitHdr
+{
+	unsigned int Type;
+	unsigned int Version;
+} g_UnitHdr = {0};
+
+static void ParseUnitHdr(void)
+{
+	YamlHelper::YamlMap yamlMap(yamlHelper);
+
+	g_UnitHdr.Type    = yamlMap.GetMapValueUINT(SS_YAML_KEY_TYPE);
+	g_UnitHdr.Version = yamlMap.GetMapValueUINT(SS_YAML_KEY_VERSION);
+}
+
+//---
+
+static void ParseApple2Type(void)
+{
+	std::string scalar;
+	if (!yamlHelper.GetScalar(scalar))
+		throw std::string( SS_YAML_KEY_APPLE2TYPE ": Missing scalar");
+
+	g_Apple2Type = (eApple2Type) strtoul(scalar.c_str(), NULL, 16);
+}
+
+static void Snapshot_LoadState_v2(void)
+{
+	try
+	{
+		int res = yamlHelper.InitParser( g_strSaveStatePathname.c_str() );
+		if (!res)
+			throw std::string("Failed to initialize parser or open file");	// TODO: disambiguate
+
+		//
+
+		UINT version = ParseFileHdr();
+		if (version != 2)
+			throw std::string("Version mismatch");
+
+		while(1)
+		{
+			std::string scalar;
+			if (!yamlHelper.GetScalar(scalar))
+				break;
+
+			if (scalar == SS_YAML_KEY_UNITHDR)
+			{
+				ParseUnitHdr();
+			}
+			else if (scalar == SS_YAML_KEY_APPLE2TYPE)
+			{
+				ParseApple2Type();
+			}
+			else if (scalar == SS_YAML_KEY_CPU6502)
+			{
+				CpuSetSnapshot(yamlHelper);
+			}
+		}
+
+		// TODO
+	}
+	catch(std::string szMessage)
+	{
+		MessageBox(	g_hFrameWindow,
+					szMessage.c_str(),
+					TEXT("Load State"),
+					MB_ICONEXCLAMATION | MB_SETFOREGROUND);
+
+		PostMessage(g_hFrameWindow, WM_USER_RESTART, 0, 0);		// Power-cycle VM (undoing all the new state just loaded)
+	}
+
+	yamlHelper.FinaliseParser();
+}
+
 static void Snapshot_LoadState_v2(DWORD dwVersion)
 {
 	try
@@ -589,6 +693,16 @@ static void Snapshot_LoadState_v2(DWORD dwVersion)
 
 void Snapshot_LoadState()
 {
+	const std::string ext_yaml = (".yaml");
+	const size_t pos = g_strSaveStatePathname.size() - ext_yaml.size();
+	if (g_strSaveStatePathname.find(ext_yaml, pos) != std::string::npos)	// find ".yaml" at end of pathname
+	{
+		Snapshot_LoadState_v2();
+		return;
+	}
+
+	//
+
 	SS_FILE_HDR Hdr;
 	Snapshot_LoadState_FileHdr(Hdr);
 
@@ -672,6 +786,57 @@ static void SaveUnitConfig()
 // todo:
 // . Uthernet card
 
+#if 1
+static FILE* m_hYaml = NULL;
+
+void Snapshot_SaveState(void)
+{
+	try
+	{
+		m_hYaml = fopen(g_strSaveStatePathname.c_str(), "wt");
+
+		// todo: handle ERROR_ALREADY_EXISTS - ask if user wants to replace existing file
+		// - at this point any old file will have been truncated to zero
+
+		if(m_hYaml == NULL)
+		{
+			throw std::string("Save error");
+		}
+
+		//
+
+		fprintf(m_hYaml, "---\n");
+
+		fprintf(m_hYaml, "%s:\n", SS_YAML_KEY_FILEHDR);
+		fprintf(m_hYaml, " %s: %s\n", SS_YAML_KEY_TAG, SS_YAML_VALUE_AWSS);
+		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, 2);
+
+		//
+		// Apple2 unit
+		//
+
+		fprintf(m_hYaml, "%s:\n", SS_YAML_KEY_UNITHDR);
+		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_TYPE, UT_Apple2);	// or "UT_Apple2" ?
+		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, UNIT_APPLE2_VER);
+
+		fprintf(m_hYaml, "%s: 0x%08X\n", SS_YAML_KEY_APPLE2TYPE, g_Apple2Type);
+
+		CpuGetSnapshot(m_hYaml);
+
+		fprintf(m_hYaml, "...\n");
+	}
+	catch(std::string szMessage)
+	{
+		MessageBox(	g_hFrameWindow,
+					szMessage.c_str(),
+					TEXT("Save State"),
+					MB_ICONEXCLAMATION | MB_SETFOREGROUND);
+	}
+
+	fclose(m_hYaml);
+	m_hYaml = NULL;
+}
+#else
 void Snapshot_SaveState()
 {
 	try
@@ -780,6 +945,7 @@ void Snapshot_SaveState()
 	CloseHandle(m_hFile);
 	m_hFile = INVALID_HANDLE_VALUE;
 }
+#endif
 
 //-----------------------------------------------------------------------------
 
