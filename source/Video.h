@@ -86,6 +86,9 @@ bool    VideoGetSWAltCharSet(void);
 void    VideoSetForceFullRedraw(void);
 
 void    VideoSetSnapshot_v1(const UINT AltCharSet, const UINT VideoMode);
+std::string VideoGetSnapshotStructName(void);
+void    VideoGetSnapshot(FILE* hFile);
+void    VideoSetSnapshot(class YamlHelper& yamlHelper);
 void    VideoGetSnapshot(struct SS_IO_Video_v2& Video);
 void    VideoSetSnapshot(const struct SS_IO_Video_v2& Video);
 

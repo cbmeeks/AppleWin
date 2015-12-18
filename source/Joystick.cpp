@@ -42,6 +42,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "AppleWin.h"
 #include "CPU.h"
 #include "Memory.h"
+#include "YamlHelper.h"
 
 #include "Configuration\PropertySheet.h"
 
@@ -851,6 +852,41 @@ void JoyportControl(const UINT uControl)
 void JoySetSnapshot_v1(const unsigned __int64 JoyCntrResetCycle)
 {
 	g_nJoyCntrResetCycle = JoyCntrResetCycle;
+}
+
+//
+
+#define SS_YAML_KEY_COUNTERRESETCYCLE "Counter Reset Cycle"
+#define SS_YAML_KEY_JOY0TRIM0 "Joystick0 Trim0"
+#define SS_YAML_KEY_JOY0TRIM1 "Joystick0 Trim1"
+#define SS_YAML_KEY_JOY1TRIM0 "Joystick1 Trim0"
+#define SS_YAML_KEY_JOY1TRIM1 "Joystick1 Trim1"
+
+std::string JoyGetSnapshotStructName(void)
+{
+	static const std::string name("Joystick");
+	return name;
+}
+
+void JoyGetSnapshot(FILE* hFile)
+{
+	fprintf(hFile, "%s:\n", JoyGetSnapshotStructName().c_str());
+	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_COUNTERRESETCYCLE, g_nJoyCntrResetCycle);
+	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_JOY0TRIM0, JoyGetTrim(true));
+	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_JOY0TRIM1, JoyGetTrim(false));
+	fprintf(hFile, " %s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIM0, 0);	// not implemented yet
+	fprintf(hFile, " %s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIM1, 0);	// not implemented yet
+}
+
+void JoySetSnapshot(class YamlHelper& yamlHelper)
+{
+	YamlHelper::YamlMap yamlMap(yamlHelper);
+
+	g_nJoyCntrResetCycle = yamlMap.GetMapValueUINT64(SS_YAML_KEY_COUNTERRESETCYCLE);
+	JoySetTrim(yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY0TRIM0), true);
+	JoySetTrim(yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY0TRIM1), false);
+	yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY1TRIM0);	// dump value
+	yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY1TRIM1);	// dump value
 }
 
 //

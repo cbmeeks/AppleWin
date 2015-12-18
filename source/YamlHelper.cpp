@@ -81,24 +81,23 @@ int YamlHelper::GetScalar(std::string& scalar)
 	return res;
 }
 
-int YamlHelper::ParseMap(bool bGotMapStartEvent /*= false*/)
+int YamlHelper::ParseMap(void)
 {
 	m_mapYaml.clear();
 
-	if (!bGotMapStartEvent)
+	if (!yaml_parser_parse(&m_parser, &m_newEvent))
 	{
-		if (!yaml_parser_parse(&m_parser, &m_newEvent))
-		{
-			//printf("Parser error %d\n", m_parser.error);
-			throw std::string("Parser error");
-		}
-
-		if (m_newEvent.type != YAML_MAPPING_START_EVENT)
-		{
-			//printf("Unexpected yaml event (%d)\n", m_newEvent.type);
-			throw std::string("Unexpected yaml event");
-		}
+		//printf("Parser error %d\n", m_parser.error);
+		throw std::string("Parser error");
 	}
+
+	if (m_newEvent.type != YAML_MAPPING_START_EVENT)
+	{
+		//printf("Unexpected yaml event (%d)\n", m_newEvent.type);
+		throw std::string("Unexpected yaml event");
+	}
+
+	//
 
 	m_mapName = m_scalarName;
 	const char*& pValue = (const char*&) m_newEvent.data.scalar.value;
@@ -170,6 +169,56 @@ void YamlHelper::GetMapRemainder(void)
 		char szDbg[100];
 		sprintf(szDbg, "%s: Unknown key (%s)\n", m_mapName.c_str(), pKey);
 		OutputDebugString(szDbg);
+	}
+
+	m_mapYaml.clear();
+}
+
+void YamlHelper::MakeAsciiToHexTable(void)
+{
+	memset(m_AsciiToHex, -1, sizeof(m_AsciiToHex));
+
+	for (int i = '0'; i<= '9'; i++)
+		m_AsciiToHex[i] = i - '0';
+
+	for (int i = 'A'; i<= 'F'; i++)
+		m_AsciiToHex[i] = i - 'A' + 0xA;
+
+	for (int i = 'a'; i<= 'f'; i++)
+		m_AsciiToHex[i] = i - 'a' + 0xA;
+}
+
+void YamlHelper::GetMapValueMemory(const LPBYTE pMemBase)
+{
+	const UINT kAddrSpaceSize = 64*1024;
+
+	for (MapYaml::iterator it = m_mapYaml.begin(); it != m_mapYaml.end(); ++it)
+	{
+		const char* pKey = it->first.c_str();
+		UINT addr = strtoul(pKey, NULL, 16);
+		if (addr >= kAddrSpaceSize)
+			throw std::string("Memory: line address too big: " + it->first);
+
+		LPBYTE pDst = (LPBYTE) (pMemBase + addr);
+		const LPBYTE pDstEnd = (LPBYTE) (pMemBase + kAddrSpaceSize);
+
+		const char* pValue = it->second.c_str();
+		size_t len = strlen(pValue);
+		if (len & 1)
+			throw std::string("Memory: hex data must be an even number of nibbles on line address: " + it->first);
+
+		for (UINT i = 0; i<len; i+=2)
+		{
+			if (pDst >= pDstEnd)
+				throw std::string("Memory: hex data overflowed 64K address space on line address: " + it->first);
+
+			BYTE ah = m_AsciiToHex[ (BYTE)(*pValue++) ];
+			BYTE al = m_AsciiToHex[ (BYTE)(*pValue++) ];
+			if ((ah | al) & 0x80)
+				throw std::string("Memory: hex data contains illegal character on line address: " + it->first);
+
+			*pDst++ = (ah<<4) | al;
+		}
 	}
 
 	m_mapYaml.clear();

@@ -55,6 +55,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "Configuration\PropertySheet.h"
 #include "Debugger\DebugDefs.h"
 #include "SaveState_Structs_v2.h"
+#include "YamlHelper.h"
 
 // Memory Flag
 #define  MF_80STORE    0x00000001
@@ -1680,6 +1681,129 @@ void MemSetSnapshot_v1(const DWORD MemMode, const BOOL LastWriteRam, const BYTE*
 	modechanging = 0;
 	// NB. MemUpdatePaging(TRUE) called at end of Snapshot_LoadState_v1()
 	UpdatePaging(1);	// Initialize=1
+}
+
+//
+
+#define SS_YAML_KEY_MEMORYMODE "Memory Mode"
+#define SS_YAML_KEY_LASTRAMWRITE "Last RAM Write"
+#define SS_YAML_KEY_IOSELECT "IO_SELECT"
+#define SS_YAML_KEY_IOSELECT_INT "IO_SELECT_InternalROM"
+#define SS_YAML_KEY_EXPANSIONROMTYPE "Expansion ROM Type"
+#define SS_YAML_KEY_PERIPHERALROMSLOT "Peripheral ROM Slot"
+
+std::string MemGetSnapshotStructName(void)
+{
+	static const std::string name("Memory");
+	return name;
+}
+
+std::string MemGetSnapshotMainMemStructName(void)
+{
+	static const std::string name("Main Memory");
+	return name;
+}
+
+std::string MemGetSnapshotAuxMemStructName(void)
+{
+	static const std::string name("Auxiliary Memory");
+	return name;
+}
+
+static void MemGetSnapshotMemory(FILE* hFile, bool bIsMainMemory)
+{
+	fprintf(hFile, "%s:\n", bIsMainMemory	? MemGetSnapshotMainMemStructName().c_str()
+											: MemGetSnapshotAuxMemStructName().c_str() );
+
+	const UINT kStride = 64;
+	const char szHex[] = "0123456789ABCDEF"; 
+
+	for(DWORD dwOffset = 0x0000; dwOffset < 0x10000; dwOffset+=kStride)
+	{
+		char szMem[7+2*kStride+2];	// " AAAA: 00010203...3F\n\00" = 7+ 2*64 +2 = 137
+
+		char* pDst = &szMem[0];
+		*pDst++ = ' ';
+		*pDst++ = szHex[ (dwOffset>>12)&0xf ];
+		*pDst++ = szHex[ (dwOffset>>8)&0xf ];
+		*pDst++ = szHex[ (dwOffset>>4)&0xf ];
+		*pDst++ = szHex[  dwOffset&0xf ];
+		*pDst++ = ':';
+		*pDst++ = ' ';
+
+		LPBYTE pMem = bIsMainMemory	? MemGetMainPtr((WORD)dwOffset)
+									: MemGetAuxPtr((WORD)dwOffset);
+
+		for (UINT i=0; i<kStride; i+=8)
+		{
+			BYTE d;
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
+		}
+
+		*pDst++ = '\n';
+		*pDst = 0;
+
+		fwrite(szMem, 1, sizeof(szMem)-1, hFile);	// -1 so don't write null terminator
+	}
+}
+
+void MemGetSnapshot(FILE* hFile)
+{
+	fprintf(hFile, "%s:\n", MemGetSnapshotStructName().c_str());
+	fprintf(hFile, " %s: 0x%08X\n", SS_YAML_KEY_MEMORYMODE, memmode);
+	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_LASTRAMWRITE, lastwriteram ? 1 : 0);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_IOSELECT, IO_SELECT);
+	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_IOSELECT_INT, IO_SELECT_InternalROM);
+	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_EXPANSIONROMTYPE, (UINT) g_eExpansionRomType);
+	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_PERIPHERALROMSLOT, g_uPeripheralRomSlot);
+
+	MemGetSnapshotMemory(hFile, true);
+}
+
+bool MemSetSnapshot(class YamlHelper& yamlHelper)
+{
+	// Yaml map for "Memory"
+	{
+		YamlHelper::YamlMap yamlMap(yamlHelper);
+
+		SetMemMode( yamlMap.GetMapValueUINT(SS_YAML_KEY_MEMORYMODE) );
+		lastwriteram = yamlMap.GetMapValueUINT(SS_YAML_KEY_LASTRAMWRITE) ? 1 : 0;
+		IO_SELECT = (BYTE) yamlMap.GetMapValueUINT(SS_YAML_KEY_IOSELECT);
+		IO_SELECT_InternalROM = (BYTE) yamlMap.GetMapValueUINT(SS_YAML_KEY_IOSELECT_INT);
+		g_eExpansionRomType = (eExpansionRomType) yamlMap.GetMapValueUINT(SS_YAML_KEY_EXPANSIONROMTYPE);
+		g_uPeripheralRomSlot = yamlMap.GetMapValueUINT(SS_YAML_KEY_PERIPHERALROMSLOT);
+	}
+
+	// Yaml map for "Main Memory"
+	{
+		std::string scalar;
+		if (!yamlHelper.GetScalar(scalar))
+			return false;	// End of stream
+
+		if (scalar != MemGetSnapshotMainMemStructName())
+			throw std::string("Memory: Unexpected scalar: " + scalar + ". Expected: " + MemGetSnapshotMainMemStructName());
+
+		YamlHelper::YamlMap yamlMap(yamlHelper);
+
+		yamlMap.GetMapValueMemory( memmain );
+		memset(memdirty, 0, 0x100);
+	}
+
+	//
+
+	modechanging = 0;
+	// NB. MemUpdatePaging(TRUE) called at end of Snapshot_LoadState_v2()
+	UpdatePaging(1);	// Initialize=1 (Still needed, even with call to MemUpdatePaging() - why?)
+
+	return true;
 }
 
 //

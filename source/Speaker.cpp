@@ -35,6 +35,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "SoundCore.h"
 #include "Speaker.h"
 #include "Video.h"	// VideoRedrawScreen()
+#include "YamlHelper.h"
 
 #include "Debugger\Debug.h"	// For DWORD extbench
 
@@ -1095,6 +1096,29 @@ void Spkr_DSUninit()
 void SpkrSetSnapshot_v1(const unsigned __int64 SpkrLastCycle)
 {
 	g_nSpkrLastCycle = SpkrLastCycle;
+}
+
+//
+
+#define SS_YAML_KEY_LASTCYCLE "Last Cycle"
+
+std::string SpkrGetSnapshotStructName(void)
+{
+	static const std::string name("Speaker");
+	return name;
+}
+
+void SpkrGetSnapshot(FILE* hFile)
+{
+	fprintf(hFile, "%s:\n", SpkrGetSnapshotStructName().c_str());
+	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_LASTCYCLE, g_nSpkrLastCycle);
+}
+
+void SpkrSetSnapshot(class YamlHelper& yamlHelper)
+{
+	YamlHelper::YamlMap yamlMap(yamlHelper);
+
+	g_nSpkrLastCycle = yamlMap.GetMapValueUINT64(SS_YAML_KEY_LASTCYCLE);
 }
 
 //

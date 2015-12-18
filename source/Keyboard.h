@@ -15,6 +15,9 @@ void    KeybQueueKeypress (int,BOOL);
 void    KeybToggleCapsLock ();
 void    KeybToggleP8ACapsLock ();
 void    KeybSetSnapshot_v1(const BYTE LastKey);
+std::string KeybGetSnapshotStructName(void);
+void    KeybGetSnapshot(FILE* hFile);
+void    KeybSetSnapshot(class YamlHelper& yamlHelper);
 void    KeybGetSnapshot(BYTE& rLastKey);
 void    KeybSetSnapshot(const BYTE LastKey);
 

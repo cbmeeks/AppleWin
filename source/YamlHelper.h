@@ -8,7 +8,6 @@
 #define SS_YAML_KEY_UNITHDR "Unit_hdr"
 #define SS_YAML_KEY_TYPE "Type"
 #define SS_YAML_KEY_APPLE2TYPE "Apple2Type"
-#define SS_YAML_KEY_CPU6502 "CPU6502"
 #define SS_YAML_VALUE_AWSS "AWSS"
 
 typedef std::map<std::string, std::string> MapYaml;
@@ -19,6 +18,7 @@ public:
 	YamlHelper() :
 		m_hFile(NULL)
 	{
+		MakeAsciiToHexTable();
 	}
 
 	~YamlHelper()
@@ -29,9 +29,7 @@ public:
 
 	int InitParser(const char* pPathname);
 	void FinaliseParser(void);
-
 	int GetScalar(std::string& scalar);
-	std::string GetMapName(void) { return m_mapName; }
 
 	//
 
@@ -71,14 +69,22 @@ public:
 			return value;
 		}
 
+		void GetMapValueMemory(const LPBYTE pMemBase)
+		{
+			m_yamlHelper.GetMapValueMemory(pMemBase);
+		}
+
 	private:
 		YamlHelper& m_yamlHelper;
 	};
 
 private:
+	std::string GetMapName(void) { return m_mapName; }
+	int ParseMap(void);
 	std::string GetMapValue(const std::string key);
-	int ParseMap(bool bGotMapStartEvent = false);
+	void GetMapValueMemory(const LPBYTE pMemBase);
 	void GetMapRemainder(void);
+	void MakeAsciiToHexTable(void);
 
 	yaml_parser_t m_parser;
 	yaml_event_t m_newEvent;
@@ -88,5 +94,41 @@ private:
 	MapYaml m_mapYaml;
 	std::string m_mapName;
 
+	FILE* m_hFile;
+
+	char m_AsciiToHex[256];
+};
+
+// -----
+
+class YamlSaveHelper
+{
+public:
+	YamlSaveHelper(std::string pathname) :
+		m_hFile(NULL)
+	{
+		m_hFile = fopen(pathname.c_str(), "wt");
+
+		// todo: handle ERROR_ALREADY_EXISTS - ask if user wants to replace existing file
+		// - at this point any old file will have been truncated to zero
+
+		if(m_hFile == NULL)
+			throw std::string("Save error");
+
+		fprintf(m_hFile, "---\n");
+	}
+
+	~YamlSaveHelper()
+	{
+		if (m_hFile)
+		{
+			fprintf(m_hFile, "...\n");
+			fclose(m_hFile);
+		}
+	}
+
+	FILE* GetFile(void) { return m_hFile; }
+
+private:
 	FILE* m_hFile;
 };

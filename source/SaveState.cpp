@@ -553,11 +553,39 @@ static void Snapshot_LoadState_v2(void)
 		if (!res)
 			throw std::string("Failed to initialize parser or open file");	// TODO: disambiguate
 
-		//
-
 		UINT version = ParseFileHdr();
 		if (version != 2)
 			throw std::string("Version mismatch");
+
+		//
+
+		CConfigNeedingRestart ConfigOld;
+		ConfigOld.m_Slot[1] = CT_GenericPrinter;	// fixme
+		ConfigOld.m_Slot[2] = CT_SSC;				// fixme
+		//ConfigOld.m_Slot[3] = CT_Uthernet;		// todo
+		ConfigOld.m_Slot[6] = CT_Disk2;				// fixme
+		ConfigOld.m_Slot[7] = ConfigOld.m_bEnableHDD ? CT_GenericHDD : CT_Empty;	// fixme
+		//ConfigOld.m_SlotAux = ?;					// fixme
+
+		for (UINT i=0; i<NUM_SLOTS; i++)
+			m_ConfigNew.m_Slot[i] = CT_Empty;
+		m_ConfigNew.m_SlotAux = CT_Empty;
+		m_ConfigNew.m_bEnableHDD = false;
+		//m_ConfigNew.m_bEnableTheFreezesF8Rom = ?;	// todo: when support saving config
+		//m_ConfigNew.m_bEnhanceDisk = ?;			// todo: when support saving config
+
+		MemReset();
+		PravetsReset();
+		DiskReset();
+		KeybReset();
+		VideoResetState();
+		MB_Reset();
+#ifdef USE_SPEECH_API
+		g_Speech.Reset();
+#endif
+		sg_Mouse.Uninitialize();
+		sg_Mouse.Reset();
+		HD_SetEnabled(false);
 
 		while(1)
 		{
@@ -573,13 +601,46 @@ static void Snapshot_LoadState_v2(void)
 			{
 				ParseApple2Type();
 			}
-			else if (scalar == SS_YAML_KEY_CPU6502)
+			else if (scalar == CpuGetSnapshotStructName())
 			{
 				CpuSetSnapshot(yamlHelper);
 			}
+			else if (scalar == JoyGetSnapshotStructName())
+			{
+				JoySetSnapshot(yamlHelper);
+			}
+			else if (scalar == KeybGetSnapshotStructName())
+			{
+				KeybSetSnapshot(yamlHelper);
+			}
+			else if (scalar == SpkrGetSnapshotStructName())
+			{
+				SpkrSetSnapshot(yamlHelper);
+			}
+			else if (scalar == VideoGetSnapshotStructName())
+			{
+				VideoSetSnapshot(yamlHelper);
+			}
+			else if (scalar == MemGetSnapshotStructName())
+			{
+				MemSetSnapshot(yamlHelper);
+			}
 		}
 
-		// TODO
+		SetLoadedSaveStateFlag(true);
+
+		// NB. The following disparity should be resolved:
+		// . A change in h/w via the Configuration property sheets results in a the VM completely restarting (via WM_USER_RESTART)
+		// . A change in h/w via loading a save-state avoids this VM restart
+		// The latter is the desired approach (as the former needs a "power-on" / F2 to start things again)
+
+		sg_PropertySheet.ApplyNewConfig(m_ConfigNew, ConfigOld);
+
+		MemInitializeROM();
+		MemInitializeCustomF8ROM();
+		MemInitializeIO();
+
+		MemUpdatePaging(TRUE);
 	}
 	catch(std::string szMessage)
 	{
@@ -787,43 +848,40 @@ static void SaveUnitConfig()
 // . Uthernet card
 
 #if 1
-static FILE* m_hYaml = NULL;
-
 void Snapshot_SaveState(void)
 {
 	try
 	{
-		m_hYaml = fopen(g_strSaveStatePathname.c_str(), "wt");
+		YamlSaveHelper yamlSaveHelper(g_strSaveStatePathname);
+		FILE* hYaml = yamlSaveHelper.GetFile();
 
-		// todo: handle ERROR_ALREADY_EXISTS - ask if user wants to replace existing file
-		// - at this point any old file will have been truncated to zero
-
-		if(m_hYaml == NULL)
-		{
-			throw std::string("Save error");
-		}
-
-		//
-
-		fprintf(m_hYaml, "---\n");
-
-		fprintf(m_hYaml, "%s:\n", SS_YAML_KEY_FILEHDR);
-		fprintf(m_hYaml, " %s: %s\n", SS_YAML_KEY_TAG, SS_YAML_VALUE_AWSS);
-		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, 2);
+		fprintf(hYaml, "%s:\n", SS_YAML_KEY_FILEHDR);
+		fprintf(hYaml, " %s: %s\n", SS_YAML_KEY_TAG, SS_YAML_VALUE_AWSS);
+		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, 2);
 
 		//
 		// Apple2 unit
 		//
 
-		fprintf(m_hYaml, "%s:\n", SS_YAML_KEY_UNITHDR);
-		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_TYPE, UT_Apple2);	// or "UT_Apple2" ?
-		fprintf(m_hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, UNIT_APPLE2_VER);
+		fprintf(hYaml, "%s:\n", SS_YAML_KEY_UNITHDR);
+		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_TYPE, UT_Apple2);	// or "UT_Apple2" ?
+		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, UNIT_APPLE2_VER);
 
-		fprintf(m_hYaml, "%s: 0x%08X\n", SS_YAML_KEY_APPLE2TYPE, g_Apple2Type);
+		fprintf(hYaml, "%s: 0x%08X\n", SS_YAML_KEY_APPLE2TYPE, g_Apple2Type);
 
-		CpuGetSnapshot(m_hYaml);
+		CpuGetSnapshot(hYaml);
+		JoyGetSnapshot(hYaml);
+		KeybGetSnapshot(hYaml);
+		SpkrGetSnapshot(hYaml);
+		VideoGetSnapshot(hYaml);
+		MemGetSnapshot(hYaml);
 
-		fprintf(m_hYaml, "...\n");
+		//
+		// Cards
+		//
+
+		//MemGetSnapshotAux(hYaml);
+		//...
 	}
 	catch(std::string szMessage)
 	{
@@ -832,9 +890,6 @@ void Snapshot_SaveState(void)
 					TEXT("Save State"),
 					MB_ICONEXCLAMATION | MB_SETFOREGROUND);
 	}
-
-	fclose(m_hYaml);
-	m_hYaml = NULL;
 }
 #else
 void Snapshot_SaveState()

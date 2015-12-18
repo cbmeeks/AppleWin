@@ -668,9 +668,15 @@ void CpuSetSnapshot_v1(const BYTE A, const BYTE X, const BYTE Y, const BYTE P, c
 #define SS_YAML_KEY_REGPC "PC"
 #define SS_YAML_KEY_CUMULATIVECYCLES "CumulativeCycles"
 
+std::string CpuGetSnapshotStructName(void)
+{
+	static const std::string name("CPU6502");
+	return name;
+}
+
 void CpuGetSnapshot(FILE* hFile)
 {
-	fprintf(hFile, "%s:\n", SS_YAML_KEY_CPU6502);
+	fprintf(hFile, "%s:\n", CpuGetSnapshotStructName().c_str());
 	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGA, regs.a);
 	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGX, regs.x);
 	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGY, regs.y);
