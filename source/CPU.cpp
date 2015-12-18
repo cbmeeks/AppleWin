@@ -666,7 +666,7 @@ void CpuSetSnapshot_v1(const BYTE A, const BYTE X, const BYTE Y, const BYTE P, c
 #define SS_YAML_KEY_REGP "P"
 #define SS_YAML_KEY_REGS "S"
 #define SS_YAML_KEY_REGPC "PC"
-#define SS_YAML_KEY_CUMULATIVECYCLES "CumulativeCycles"
+#define SS_YAML_KEY_CUMULATIVECYCLES "Cumulative Cycles"
 
 std::string CpuGetSnapshotStructName(void)
 {
