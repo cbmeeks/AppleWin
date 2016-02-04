@@ -1685,6 +1685,8 @@ void MemSetSnapshot_v1(const DWORD MemMode, const BOOL LastWriteRam, const BYTE*
 
 //
 
+#define UNIT_AUXSLOT_VER 1
+
 #define SS_YAML_KEY_MEMORYMODE "Memory Mode"
 #define SS_YAML_KEY_LASTRAMWRITE "Last RAM Write"
 #define SS_YAML_KEY_IOSELECT "IO_SELECT"
@@ -1692,116 +1694,191 @@ void MemSetSnapshot_v1(const DWORD MemMode, const BOOL LastWriteRam, const BYTE*
 #define SS_YAML_KEY_EXPANSIONROMTYPE "Expansion ROM Type"
 #define SS_YAML_KEY_PERIPHERALROMSLOT "Peripheral ROM Slot"
 
-std::string MemGetSnapshotStructName(void)
+#define SS_YAML_VALUE_CARD_80COL "80 Column"
+#define SS_YAML_VALUE_CARD_EXTENDED80COL "Extended 80 Column"
+#define SS_YAML_VALUE_CARD_RAMWORKSIII "RamWorksIII"
+
+#define SS_YAML_KEY_NUMAUXBANKS "Num Aux Banks"
+#define SS_YAML_KEY_ACTIVEAUXBANK "Active Aux Bank"
+
+static std::string MemGetSnapshotStructName(void)
 {
 	static const std::string name("Memory");
 	return name;
 }
 
-std::string MemGetSnapshotMainMemStructName(void)
+std::string MemGetSnapshotUnitAuxSlotName(void)
+{
+	static const std::string name("Auxiliary Slot");
+	return name;
+}
+
+static std::string MemGetSnapshotMainMemStructName(void)
 {
 	static const std::string name("Main Memory");
 	return name;
 }
 
-std::string MemGetSnapshotAuxMemStructName(void)
+static std::string MemGetSnapshotAuxMemStructName(void)
 {
-	static const std::string name("Auxiliary Memory");
+	static const std::string name("Auxiliary Memory Bank");
 	return name;
 }
 
-static void MemGetSnapshotMemory(FILE* hFile, bool bIsMainMemory)
+static void MemSaveSnapshotMemory(YamlSaveHelper& yamlSaveHelper, bool bIsMainMem, UINT bank=0)
 {
-	fprintf(hFile, "%s:\n", bIsMainMemory	? MemGetSnapshotMainMemStructName().c_str()
-											: MemGetSnapshotAuxMemStructName().c_str() );
+	LPBYTE pMemBase = MemGetBankPtr(bank);
 
-	const UINT kStride = 64;
-	const char szHex[] = "0123456789ABCDEF"; 
-
-	for(DWORD dwOffset = 0x0000; dwOffset < 0x10000; dwOffset+=kStride)
+	if (bIsMainMem)
 	{
-		char szMem[7+2*kStride+2];	// " AAAA: 00010203...3F\n\00" = 7+ 2*64 +2 = 137
-
-		char* pDst = &szMem[0];
-		*pDst++ = ' ';
-		*pDst++ = szHex[ (dwOffset>>12)&0xf ];
-		*pDst++ = szHex[ (dwOffset>>8)&0xf ];
-		*pDst++ = szHex[ (dwOffset>>4)&0xf ];
-		*pDst++ = szHex[  dwOffset&0xf ];
-		*pDst++ = ':';
-		*pDst++ = ' ';
-
-		LPBYTE pMem = bIsMainMemory	? MemGetMainPtr((WORD)dwOffset)
-									: MemGetAuxPtr((WORD)dwOffset);
-
-		for (UINT i=0; i<kStride; i+=8)
-		{
-			BYTE d;
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-			d = *pMem++; *pDst++ = szHex[d>>4]; *pDst++ = szHex[d&0xf];
-		}
-
-		*pDst++ = '\n';
-		*pDst = 0;
-
-		fwrite(szMem, 1, sizeof(szMem)-1, hFile);	// -1 so don't write null terminator
+		YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", MemGetSnapshotMainMemStructName().c_str());
+		yamlSaveHelper.SaveMapValueMemory(pMemBase, 64*1024);
+	}
+	else
+	{
+		YamlSaveHelper::Label state(yamlSaveHelper, "%s%02X:\n", MemGetSnapshotAuxMemStructName().c_str(), bank-1);
+		yamlSaveHelper.SaveMapValueMemory(pMemBase, 64*1024);
 	}
 }
 
-void MemGetSnapshot(FILE* hFile)
+void MemSaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", MemGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: 0x%08X\n", SS_YAML_KEY_MEMORYMODE, memmode);
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_LASTRAMWRITE, lastwriteram ? 1 : 0);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_IOSELECT, IO_SELECT);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_IOSELECT_INT, IO_SELECT_InternalROM);
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_EXPANSIONROMTYPE, (UINT) g_eExpansionRomType);
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_PERIPHERALROMSLOT, g_uPeripheralRomSlot);
+	// Scope so that "Memory" & "Main Memory" are at same indent level
+	{
+		YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", MemGetSnapshotStructName().c_str());
+		yamlSaveHelper.Save("%s: 0x%08X\n", SS_YAML_KEY_MEMORYMODE, memmode);
+		yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_LASTRAMWRITE, lastwriteram ? 1 : 0);
+		yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_IOSELECT, IO_SELECT);
+		yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_IOSELECT_INT, IO_SELECT_InternalROM);
+		yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_EXPANSIONROMTYPE, (UINT) g_eExpansionRomType);
+		yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_PERIPHERALROMSLOT, g_uPeripheralRomSlot);
+	}
 
-	MemGetSnapshotMemory(hFile, true);
+	MemSaveSnapshotMemory(yamlSaveHelper, true);
 }
 
-bool MemSetSnapshot(class YamlHelper& yamlHelper)
+bool MemLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	// Yaml map for "Memory"
-	{
-		YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(MemGetSnapshotStructName()))
+		return false;
 
-		SetMemMode( yamlMap.GetMapValueUINT(SS_YAML_KEY_MEMORYMODE) );
-		lastwriteram = yamlMap.GetMapValueUINT(SS_YAML_KEY_LASTRAMWRITE) ? 1 : 0;
-		IO_SELECT = (BYTE) yamlMap.GetMapValueUINT(SS_YAML_KEY_IOSELECT);
-		IO_SELECT_InternalROM = (BYTE) yamlMap.GetMapValueUINT(SS_YAML_KEY_IOSELECT_INT);
-		g_eExpansionRomType = (eExpansionRomType) yamlMap.GetMapValueUINT(SS_YAML_KEY_EXPANSIONROMTYPE);
-		g_uPeripheralRomSlot = yamlMap.GetMapValueUINT(SS_YAML_KEY_PERIPHERALROMSLOT);
-	}
+	SetMemMode( yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_MEMORYMODE) );
+	lastwriteram = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_LASTRAMWRITE) ? 1 : 0;
+	IO_SELECT = (BYTE) yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_IOSELECT);
+	IO_SELECT_InternalROM = (BYTE) yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_IOSELECT_INT);
+	g_eExpansionRomType = (eExpansionRomType) yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_EXPANSIONROMTYPE);
+	g_uPeripheralRomSlot = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_PERIPHERALROMSLOT);
 
-	// Yaml map for "Main Memory"
-	{
-		std::string scalar;
-		if (!yamlHelper.GetScalar(scalar))
-			return false;	// End of stream
+	yamlLoadHelper.PopMap();
 
-		if (scalar != MemGetSnapshotMainMemStructName())
-			throw std::string("Memory: Unexpected scalar: " + scalar + ". Expected: " + MemGetSnapshotMainMemStructName());
+	//
 
-		YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap( MemGetSnapshotMainMemStructName() ))
+		throw std::string("Card: Expected key: ") + MemGetSnapshotMainMemStructName();
 
-		yamlMap.GetMapValueMemory( memmain );
-		memset(memdirty, 0, 0x100);
-	}
+	yamlLoadHelper.GetMapValueMemory(memmain, _6502_MEM_END+1);
+	memset(memdirty, 0, 0x100);
+
+	yamlLoadHelper.PopMap();
 
 	//
 
 	modechanging = 0;
 	// NB. MemUpdatePaging(TRUE) called at end of Snapshot_LoadState_v2()
 	UpdatePaging(1);	// Initialize=1 (Still needed, even with call to MemUpdatePaging() - why?)
+
+	return true;
+}
+
+void MemSaveSnapshotAux(YamlSaveHelper& yamlSaveHelper)
+{
+	if (IS_APPLE2)
+	{
+		return;	// No Aux slot for AppleII
+	}
+
+	if (IS_APPLE2C)
+	{
+		_ASSERT(g_uMaxExPages == 1);
+	}
+
+	yamlSaveHelper.UnitHdr(MemGetSnapshotUnitAuxSlotName(), UNIT_AUXSLOT_VER);
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", SS_YAML_KEY_STATE);
+
+	std::string card = 	g_uMaxExPages == 0 ?	SS_YAML_VALUE_CARD_80COL :			// todo: support empty slot
+						g_uMaxExPages == 1 ?	SS_YAML_VALUE_CARD_EXTENDED80COL :
+												SS_YAML_VALUE_CARD_RAMWORKSIII;
+	yamlSaveHelper.Save("%s: %s\n", SS_YAML_KEY_CARD, card.c_str());
+	yamlSaveHelper.Save("%s: %02X   # [0,1..7F] 0=no aux mem, 1=128K system, etc\n", SS_YAML_KEY_NUMAUXBANKS, g_uMaxExPages);
+	yamlSaveHelper.Save("%s: %02X # [  0..7E] 0=memaux\n", SS_YAML_KEY_ACTIVEAUXBANK, g_uActiveBank);
+
+	for(UINT uBank = 1; uBank <= g_uMaxExPages; uBank++)
+	{
+		MemSaveSnapshotMemory(yamlSaveHelper, false, uBank);
+	}
+}
+
+bool MemLoadSnapshotAux(YamlLoadHelper& yamlLoadHelper, UINT version)
+{
+	if (version != UNIT_AUXSLOT_VER)
+		throw std::string(SS_YAML_KEY_UNIT ": AuxSlot: Version mismatch");
+
+	// "State"
+	UINT numAuxBanks   = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_NUMAUXBANKS);
+	UINT activeAuxBank = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_ACTIVEAUXBANK);
+
+	std::string card = yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_CARD);
+	if (card == SS_YAML_VALUE_CARD_80COL)
+	{
+		if (numAuxBanks != 0 || activeAuxBank != 0)
+			throw std::string(SS_YAML_KEY_UNIT ": AuxSlot: Bad aux slot card state");
+	}
+	else if (card == SS_YAML_VALUE_CARD_EXTENDED80COL)
+	{
+		if (numAuxBanks != 1 || activeAuxBank != 0)
+			throw std::string(SS_YAML_KEY_UNIT ": AuxSlot: Bad aux slot card state");
+	}
+	else if (card == SS_YAML_VALUE_CARD_RAMWORKSIII)
+	{
+		if (numAuxBanks < 2 || numAuxBanks > 0x7F || (activeAuxBank+1) > numAuxBanks)
+			throw std::string(SS_YAML_KEY_UNIT ": AuxSlot: Bad aux slot card state");
+	}
+	else
+	{
+		// todo: support empty slot
+		throw std::string(SS_YAML_KEY_UNIT ": AuxSlot: Unknown card: " + card);
+	}
+
+	g_uMaxExPages = numAuxBanks;
+	g_uActiveBank = activeAuxBank;
+
+	//
+
+	for(UINT uBank = 1; uBank <= g_uMaxExPages; uBank++)
+	{
+		LPBYTE pBank = MemGetBankPtr(uBank);
+		if (!pBank)
+		{
+			pBank = RWpages[uBank-1] = (LPBYTE) VirtualAlloc(NULL,_6502_MEM_END+1,MEM_COMMIT,PAGE_READWRITE);
+			if (!pBank)
+				throw std::string("Card: mem alloc failed");
+		}
+
+		// "Auxiliary Memory Bankxx"
+		char szBank[3];
+		sprintf(szBank, "%02X", uBank-1);
+		std::string auxMemName = MemGetSnapshotAuxMemStructName() + szBank;
+
+		if (!yamlLoadHelper.GetSubMap(auxMemName))
+			throw std::string("Memory: Missing map name: " + auxMemName);
+
+		yamlLoadHelper.GetMapValueMemory(pBank, _6502_MEM_END+1);
+
+		yamlLoadHelper.PopMap();
+	}
+
+	memaux = RWpages[g_uActiveBank];
+	// NB. MemUpdatePaging(TRUE) called at end of Snapshot_LoadState_v2()
 
 	return true;
 }

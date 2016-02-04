@@ -857,36 +857,39 @@ void JoySetSnapshot_v1(const unsigned __int64 JoyCntrResetCycle)
 //
 
 #define SS_YAML_KEY_COUNTERRESETCYCLE "Counter Reset Cycle"
-#define SS_YAML_KEY_JOY0TRIM0 "Joystick0 Trim0"
-#define SS_YAML_KEY_JOY0TRIM1 "Joystick0 Trim1"
-#define SS_YAML_KEY_JOY1TRIM0 "Joystick1 Trim0"
-#define SS_YAML_KEY_JOY1TRIM1 "Joystick1 Trim1"
+#define SS_YAML_KEY_JOY0TRIMX "Joystick0 TrimX"
+#define SS_YAML_KEY_JOY0TRIMY "Joystick0 TrimY"
+#define SS_YAML_KEY_JOY1TRIMX "Joystick1 TrimX"
+#define SS_YAML_KEY_JOY1TRIMY "Joystick1 TrimY"
 
-std::string JoyGetSnapshotStructName(void)
+static std::string JoyGetSnapshotStructName(void)
 {
 	static const std::string name("Joystick");
 	return name;
 }
 
-void JoyGetSnapshot(FILE* hFile)
+void JoySaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", JoyGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_COUNTERRESETCYCLE, g_nJoyCntrResetCycle);
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_JOY0TRIM0, JoyGetTrim(true));
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_JOY0TRIM1, JoyGetTrim(false));
-	fprintf(hFile, " %s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIM0, 0);	// not implemented yet
-	fprintf(hFile, " %s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIM1, 0);	// not implemented yet
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", JoyGetSnapshotStructName().c_str());
+	yamlSaveHelper.Save("%s: 0x%016llX\n", SS_YAML_KEY_COUNTERRESETCYCLE, g_nJoyCntrResetCycle);
+	yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_JOY0TRIMX, JoyGetTrim(true));
+	yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_JOY0TRIMY, JoyGetTrim(false));
+	yamlSaveHelper.Save("%s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIMX, 0);	// not implemented yet
+	yamlSaveHelper.Save("%s: %d # not implemented yet\n", SS_YAML_KEY_JOY1TRIMY, 0);	// not implemented yet
 }
 
-void JoySetSnapshot(class YamlHelper& yamlHelper)
+void JoyLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(JoyGetSnapshotStructName()))
+		return;
 
-	g_nJoyCntrResetCycle = yamlMap.GetMapValueUINT64(SS_YAML_KEY_COUNTERRESETCYCLE);
-	JoySetTrim(yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY0TRIM0), true);
-	JoySetTrim(yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY0TRIM1), false);
-	yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY1TRIM0);	// dump value
-	yamlMap.GetMapValueUINT(SS_YAML_KEY_JOY1TRIM1);	// dump value
+	g_nJoyCntrResetCycle = yamlLoadHelper.GetMapValueUINT64(SS_YAML_KEY_COUNTERRESETCYCLE);
+	JoySetTrim(yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_JOY0TRIMX), true);
+	JoySetTrim(yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_JOY0TRIMY), false);
+	yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_JOY1TRIMX);	// dump value
+	yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_JOY1TRIMY);	// dump value
+
+	yamlLoadHelper.PopMap();
 }
 
 //

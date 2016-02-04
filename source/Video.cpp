@@ -2955,27 +2955,30 @@ void VideoSetSnapshot_v1(const UINT AltCharSet, const UINT VideoMode)
 #define SS_YAML_KEY_VIDEOMODE "Video Mode"
 #define SS_YAML_KEY_CYCLESTHISFRAME "Cycles This Frame"
 
-std::string VideoGetSnapshotStructName(void)
+static std::string VideoGetSnapshotStructName(void)
 {
 	static const std::string name("Video");
 	return name;
 }
 
-void VideoGetSnapshot(FILE* hFile)
+void VideoSaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", VideoGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_ALTCHARSET, g_nAltCharSetOffset ? 1 : 0);
-	fprintf(hFile, " %s: 0x%08X\n", SS_YAML_KEY_VIDEOMODE, g_uVideoMode);
-	fprintf(hFile, " %s: %d\n", SS_YAML_KEY_CYCLESTHISFRAME, g_dwCyclesThisFrame);
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", VideoGetSnapshotStructName().c_str());
+	yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_ALTCHARSET, g_nAltCharSetOffset ? 1 : 0);
+	yamlSaveHelper.Save("%s: 0x%08X\n", SS_YAML_KEY_VIDEOMODE, g_uVideoMode);
+	yamlSaveHelper.Save("%s: %d\n", SS_YAML_KEY_CYCLESTHISFRAME, g_dwCyclesThisFrame);
 }
 
-void VideoSetSnapshot(class YamlHelper& yamlHelper)
+void VideoLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(VideoGetSnapshotStructName()))
+		return;
 
-	g_nAltCharSetOffset = yamlMap.GetMapValueUINT(SS_YAML_KEY_ALTCHARSET) ? 256 : 0;
-	g_uVideoMode = yamlMap.GetMapValueUINT(SS_YAML_KEY_VIDEOMODE);
-	g_dwCyclesThisFrame = yamlMap.GetMapValueUINT(SS_YAML_KEY_CYCLESTHISFRAME);
+	g_nAltCharSetOffset = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_ALTCHARSET) ? 256 : 0;
+	g_uVideoMode = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_VIDEOMODE);
+	g_dwCyclesThisFrame = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_CYCLESTHISFRAME);
+
+	yamlLoadHelper.PopMap();
 }
 
 //

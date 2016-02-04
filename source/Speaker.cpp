@@ -1102,23 +1102,26 @@ void SpkrSetSnapshot_v1(const unsigned __int64 SpkrLastCycle)
 
 #define SS_YAML_KEY_LASTCYCLE "Last Cycle"
 
-std::string SpkrGetSnapshotStructName(void)
+static std::string SpkrGetSnapshotStructName(void)
 {
 	static const std::string name("Speaker");
 	return name;
 }
 
-void SpkrGetSnapshot(FILE* hFile)
+void SpkrSaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", SpkrGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_LASTCYCLE, g_nSpkrLastCycle);
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", SpkrGetSnapshotStructName().c_str());
+	yamlSaveHelper.Save("%s: 0x%016llX\n", SS_YAML_KEY_LASTCYCLE, g_nSpkrLastCycle);
 }
 
-void SpkrSetSnapshot(class YamlHelper& yamlHelper)
+void SpkrLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(SpkrGetSnapshotStructName()))
+		return;
 
-	g_nSpkrLastCycle = yamlMap.GetMapValueUINT64(SS_YAML_KEY_LASTCYCLE);
+	g_nSpkrLastCycle = yamlLoadHelper.GetMapValueUINT64(SS_YAML_KEY_LASTCYCLE);
+
+	yamlLoadHelper.PopMap();
 }
 
 //

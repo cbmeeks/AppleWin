@@ -495,6 +495,62 @@ static void LoadUnitConfig(DWORD Length, DWORD Version)
 
 //---
 
+static std::string GetSnapshotUnitApple2Name(void)
+{
+	static const std::string name("Apple2");
+	return name;
+}
+
+static std::string GetSnapshotUnitSlotsName(void)
+{
+	static const std::string name("Slots");
+	return name;
+}
+
+#define SS_YAML_KEY_MODEL "Model"
+
+#define SS_YAML_VALUE_APPLE2			"Apple]["
+#define SS_YAML_VALUE_APPLE2PLUS		"Apple][+"
+#define SS_YAML_VALUE_APPLE2E			"Apple//e"
+#define SS_YAML_VALUE_APPLE2EENHANCED	"Enhanced Apple//e"
+#define SS_YAML_VALUE_APPLE2C			"Apple2c"
+#define SS_YAML_VALUE_PRAVETS82			"Pravets82"
+#define SS_YAML_VALUE_PRAVETS8M			"Pravets8M"
+#define SS_YAML_VALUE_PRAVETS8A			"Pravets8A"
+
+static eApple2Type ParseApple2Type(std::string type)
+{
+	if (type == SS_YAML_VALUE_APPLE2)				return A2TYPE_APPLE2;
+	else if (type == SS_YAML_VALUE_APPLE2PLUS)		return A2TYPE_APPLE2PLUS;
+	else if (type == SS_YAML_VALUE_APPLE2E)			return A2TYPE_APPLE2E;
+	else if (type == SS_YAML_VALUE_APPLE2EENHANCED)	return A2TYPE_APPLE2EENHANCED;
+	else if (type == SS_YAML_VALUE_APPLE2C)			return A2TYPE_APPLE2C;
+	else if (type == SS_YAML_VALUE_PRAVETS82)		return A2TYPE_PRAVETS82;
+	else if (type == SS_YAML_VALUE_PRAVETS8M)		return A2TYPE_PRAVETS8M;
+	else if (type == SS_YAML_VALUE_PRAVETS8A)		return A2TYPE_PRAVETS8A;
+
+	throw std::string("Load: Unknown Apple2 type");
+}
+
+static std::string GetApple2Type(void)
+{
+	switch (g_Apple2Type)
+	{
+		case A2TYPE_APPLE2:			return SS_YAML_VALUE_APPLE2;
+		case A2TYPE_APPLE2PLUS:		return SS_YAML_VALUE_APPLE2PLUS;
+		case A2TYPE_APPLE2E:		return SS_YAML_VALUE_APPLE2E;
+		case A2TYPE_APPLE2EENHANCED:return SS_YAML_VALUE_APPLE2EENHANCED;
+		case A2TYPE_APPLE2C:		return SS_YAML_VALUE_APPLE2C;
+		case A2TYPE_PRAVETS82:		return SS_YAML_VALUE_PRAVETS82;
+		case A2TYPE_PRAVETS8M:		return SS_YAML_VALUE_PRAVETS8M;
+		case A2TYPE_PRAVETS8A:		return SS_YAML_VALUE_PRAVETS8A;
+		default:
+			throw std::string("Save: Unknown Apple2 type");
+	}
+}
+
+//---
+
 static UINT ParseFileHdr(void)
 {
 	std::string scalar;
@@ -504,45 +560,160 @@ static UINT ParseFileHdr(void)
 	if (scalar != SS_YAML_KEY_FILEHDR)
 		throw std::string("Failed to find file header");
 
+	yamlHelper.GetMapStartEvent();
+
+	YamlLoadHelper yamlLoadHelper(yamlHelper);
+
 	//
 
-	YamlHelper::YamlMap yamlMap(yamlHelper);
-
-	std::string value = yamlMap.GetMapValueSTRING(SS_YAML_KEY_TAG);
+	std::string value = yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_TAG);
 	if (value != SS_YAML_VALUE_AWSS)
 	{
 		//printf("%s: Bad tag (%s) - expected %s\n", SS_YAML_KEY_FILEHDR, value.c_str(), SS_YAML_VALUE_AWSS);
 		throw std::string(SS_YAML_KEY_FILEHDR ": Bad tag");
 	}
 
-	return yamlMap.GetMapValueUINT(SS_YAML_KEY_VERSION);
+	return yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_VERSION);
 }
 
 //---
 
-struct UnitHdr
+static void ParseUnitApple2(YamlLoadHelper& yamlLoadHelper, UINT version)
 {
-	unsigned int Type;
-	unsigned int Version;
-} g_UnitHdr = {0};
+	if (version != UNIT_APPLE2_VER)
+		throw std::string(SS_YAML_KEY_UNIT ": Apple2: Version mismatch");
 
-static void ParseUnitHdr(void)
-{
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	std::string model = yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_MODEL);
+	g_Apple2Type = ParseApple2Type(model);
 
-	g_UnitHdr.Type    = yamlMap.GetMapValueUINT(SS_YAML_KEY_TYPE);
-	g_UnitHdr.Version = yamlMap.GetMapValueUINT(SS_YAML_KEY_VERSION);
+	CpuLoadSnapshot(yamlLoadHelper);
+	JoyLoadSnapshot(yamlLoadHelper);
+	KeybLoadSnapshot(yamlLoadHelper);
+	SpkrLoadSnapshot(yamlLoadHelper);
+	VideoLoadSnapshot(yamlLoadHelper);
+	MemLoadSnapshot(yamlLoadHelper);
 }
 
 //---
 
-static void ParseApple2Type(void)
+static void ParseSlots(YamlLoadHelper& yamlLoadHelper, UINT version)
 {
-	std::string scalar;
-	if (!yamlHelper.GetScalar(scalar))
-		throw std::string( SS_YAML_KEY_APPLE2TYPE ": Missing scalar");
+	if (version != UNIT_SLOTS_VER)
+		throw std::string(SS_YAML_KEY_UNIT ": Slots: Version mismatch");
 
-	g_Apple2Type = (eApple2Type) strtoul(scalar.c_str(), NULL, 16);
+	while (1)
+	{
+		std::string scalar = yamlLoadHelper.GetMapNextSlotNumber();
+		if (scalar.empty())
+			break;	// done all slots
+
+		const int slot = strtoul(scalar.c_str(), NULL, 10);	// NB. aux slot supported as a different "unit"
+		if (slot < 1 || slot > 7)
+			throw std::string("Slots: Invalid slot #: ") + scalar;
+
+		yamlLoadHelper.GetSubMap(scalar);
+
+		std::string card = yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_CARD);
+		UINT version     = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_VERSION);
+
+		if (!yamlLoadHelper.GetSubMap(std::string(SS_YAML_KEY_STATE)))
+			throw std::string(SS_YAML_KEY_UNIT ": Expected sub-map name: " SS_YAML_KEY_STATE);
+
+		bool bIsCardSupported = true;
+		SS_CARDTYPE type = CT_Empty;
+		bool bRes = false;
+
+		if (card == Printer_GetSnapshotCardName())
+		{
+			bRes = Printer_LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_GenericPrinter;
+		}
+		else if (card == sg_SSC.GetSnapshotCardName())
+		{
+			bRes = sg_SSC.LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_SSC;
+		}
+		else if (card == sg_Mouse.GetSnapshotCardName())
+		{
+			bRes = sg_Mouse.LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_MouseInterface;
+		}
+		else if (card == Z80_GetSnapshotCardName())
+		{
+			bRes = Z80_LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_Z80;
+		}
+		else if (card == MB_GetSnapshotCardName())
+		{
+			bRes = MB_LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_MockingboardC;
+		}
+		else if (card == Phasor_GetSnapshotCardName())
+		{
+			bRes = Phasor_LoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_Phasor;
+		}
+		else if (card == DiskGetSnapshotCardName())
+		{
+			bRes = DiskLoadSnapshot(yamlLoadHelper, slot, version);
+			type = CT_Disk2;
+		}
+		else if (card == HD_GetSnapshotCardName())
+		{
+			bRes = HD_LoadSnapshot(yamlLoadHelper, slot, version, g_strSaveStatePath);
+			m_ConfigNew.m_bEnableHDD = true;
+			type = CT_GenericHDD;
+		}
+		else
+		{
+			bIsCardSupported = false;
+			throw std::string("Slots: Unknown card: " + card);	// todo: don't throw - just ignore & continue
+		}
+
+		if (bRes && bIsCardSupported)
+		{
+			m_ConfigNew.m_Slot[slot] = type;
+		}
+
+		yamlLoadHelper.PopMap();
+		yamlLoadHelper.PopMap();
+	}
+}
+
+//---
+
+static void ParseUnit(void)
+{
+	yamlHelper.GetMapStartEvent();
+
+	YamlLoadHelper yamlLoadHelper(yamlHelper);
+
+	std::string unit = yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_TYPE);
+	UINT version = yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_VERSION);
+
+	if (!yamlLoadHelper.GetSubMap(std::string(SS_YAML_KEY_STATE)))
+		throw std::string(SS_YAML_KEY_UNIT ": Expected sub-map name: " SS_YAML_KEY_STATE);
+
+	if (unit == GetSnapshotUnitApple2Name())
+	{
+		ParseUnitApple2(yamlLoadHelper, version);
+	}
+	else if (unit == MemGetSnapshotUnitAuxSlotName())
+	{
+		MemLoadSnapshotAux(yamlLoadHelper, version);
+	}
+	else if (unit == GetSnapshotUnitSlotsName())
+	{
+		ParseSlots(yamlLoadHelper, version);
+	}
+	else if (unit == SS_YAML_VALUE_UNIT_CONFIG)
+	{
+		//...
+	}
+	else
+	{
+		throw std::string(SS_YAML_KEY_UNIT ": Unknown type: " ) + unit;
+	}
 }
 
 static void Snapshot_LoadState_v2(void)
@@ -554,7 +725,7 @@ static void Snapshot_LoadState_v2(void)
 			throw std::string("Failed to initialize parser or open file");	// TODO: disambiguate
 
 		UINT version = ParseFileHdr();
-		if (version != 2)
+		if (version != SS_FILE_VER)
 			throw std::string("Version mismatch");
 
 		//
@@ -593,38 +764,10 @@ static void Snapshot_LoadState_v2(void)
 			if (!yamlHelper.GetScalar(scalar))
 				break;
 
-			if (scalar == SS_YAML_KEY_UNITHDR)
-			{
-				ParseUnitHdr();
-			}
-			else if (scalar == SS_YAML_KEY_APPLE2TYPE)
-			{
-				ParseApple2Type();
-			}
-			else if (scalar == CpuGetSnapshotStructName())
-			{
-				CpuSetSnapshot(yamlHelper);
-			}
-			else if (scalar == JoyGetSnapshotStructName())
-			{
-				JoySetSnapshot(yamlHelper);
-			}
-			else if (scalar == KeybGetSnapshotStructName())
-			{
-				KeybSetSnapshot(yamlHelper);
-			}
-			else if (scalar == SpkrGetSnapshotStructName())
-			{
-				SpkrSetSnapshot(yamlHelper);
-			}
-			else if (scalar == VideoGetSnapshotStructName())
-			{
-				VideoSetSnapshot(yamlHelper);
-			}
-			else if (scalar == MemGetSnapshotStructName())
-			{
-				MemSetSnapshot(yamlHelper);
-			}
+			if (scalar == SS_YAML_KEY_UNIT)
+				ParseUnit();
+			else
+				throw std::string("Unknown top-level scalar: " + scalar);
 		}
 
 		SetLoadedSaveStateFlag(true);
@@ -853,35 +996,55 @@ void Snapshot_SaveState(void)
 	try
 	{
 		YamlSaveHelper yamlSaveHelper(g_strSaveStatePathname);
-		FILE* hYaml = yamlSaveHelper.GetFile();
+		yamlSaveHelper.FileHdr(SS_FILE_VER);
 
-		fprintf(hYaml, "%s:\n", SS_YAML_KEY_FILEHDR);
-		fprintf(hYaml, " %s: %s\n", SS_YAML_KEY_TAG, SS_YAML_VALUE_AWSS);
-		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, 2);
+		// Unit: Apple2
+		{
+			yamlSaveHelper.UnitHdr(GetSnapshotUnitApple2Name(), UNIT_APPLE2_VER);
+			YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", SS_YAML_KEY_STATE);
 
-		//
-		// Apple2 unit
-		//
+			yamlSaveHelper.Save("%s: %s\n", SS_YAML_KEY_MODEL, GetApple2Type().c_str());
+			CpuSaveSnapshot(yamlSaveHelper);
+			JoySaveSnapshot(yamlSaveHelper);
+			KeybSaveSnapshot(yamlSaveHelper);
+			SpkrSaveSnapshot(yamlSaveHelper);
+			VideoSaveSnapshot(yamlSaveHelper);
+			MemSaveSnapshot(yamlSaveHelper);
+		}
 
-		fprintf(hYaml, "%s:\n", SS_YAML_KEY_UNITHDR);
-		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_TYPE, UT_Apple2);	// or "UT_Apple2" ?
-		fprintf(hYaml, " %s: %d\n", SS_YAML_KEY_VERSION, UNIT_APPLE2_VER);
+		// Unit: Aux slot
+		MemSaveSnapshotAux(yamlSaveHelper);
 
-		fprintf(hYaml, "%s: 0x%08X\n", SS_YAML_KEY_APPLE2TYPE, g_Apple2Type);
+		// Unit: Slots
+		{
+			yamlSaveHelper.UnitHdr(GetSnapshotUnitSlotsName(), UNIT_SLOTS_VER);
+			YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", SS_YAML_KEY_STATE);
 
-		CpuGetSnapshot(hYaml);
-		JoyGetSnapshot(hYaml);
-		KeybGetSnapshot(hYaml);
-		SpkrGetSnapshot(hYaml);
-		VideoGetSnapshot(hYaml);
-		MemGetSnapshot(hYaml);
+			Printer_SaveSnapshot(yamlSaveHelper);
 
-		//
-		// Cards
-		//
+			sg_SSC.SaveSnapshot(yamlSaveHelper);
 
-		//MemGetSnapshotAux(hYaml);
-		//...
+			sg_Mouse.SaveSnapshot(yamlSaveHelper);
+
+			if (g_Slot4 == CT_Z80)
+				Z80_SaveSnapshot(yamlSaveHelper, 4);
+
+			if (g_Slot5 == CT_Z80)
+				Z80_SaveSnapshot(yamlSaveHelper, 5);
+
+			if (g_Slot4 == CT_MockingboardC)
+				MB_SaveSnapshot(yamlSaveHelper, 4);
+
+			if (g_Slot5 == CT_MockingboardC)
+				MB_SaveSnapshot(yamlSaveHelper, 5);
+
+			if (g_Slot4 == CT_Phasor)
+				Phasor_SaveSnapshot(yamlSaveHelper, 4);
+
+			DiskSaveSnapshot(yamlSaveHelper);
+
+			HD_SaveSnapshot(yamlSaveHelper);
+		}
 	}
 	catch(std::string szMessage)
 	{

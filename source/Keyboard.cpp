@@ -510,23 +510,26 @@ void KeybSetSnapshot_v1(const BYTE LastKey)
 
 #define SS_YAML_KEY_LASTKEY "Last Key"
 
-std::string KeybGetSnapshotStructName(void)
+static std::string KeybGetSnapshotStructName(void)
 {
 	static const std::string name("Keyboard");
 	return name;
 }
 
-void KeybGetSnapshot(FILE* hFile)
+void KeybSaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", KeybGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_LASTKEY, g_nLastKey);
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", KeybGetSnapshotStructName().c_str());
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_LASTKEY, g_nLastKey);
 }
 
-void KeybSetSnapshot(class YamlHelper& yamlHelper)
+void KeybLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(KeybGetSnapshotStructName()))
+		return;
 
-	g_nLastKey = (BYTE) yamlMap.GetMapValueUINT(SS_YAML_KEY_LASTKEY);
+	g_nLastKey = (BYTE) yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_LASTKEY);
+
+	yamlLoadHelper.PopMap();
 }
 
 //

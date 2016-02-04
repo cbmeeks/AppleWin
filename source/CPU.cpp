@@ -406,10 +406,17 @@ static __forceinline void CheckInterruptSources(ULONG uExecutedCycles)
 
 //===========================================================================
 
+static bool IsCpu6502(void)
+{
+	return	IS_APPLE2 ||
+			(g_Apple2Type == A2TYPE_APPLE2E) ||
+			IS_CLONE();		// NB. All Pravets clones are 6502 (GH#307)
+}
+
 static DWORD InternalCpuExecute (DWORD uTotalCycles)
 {
-	if (IS_APPLE2 || (g_Apple2Type == A2TYPE_APPLE2E))
-		return Cpu6502(uTotalCycles);	// Apple ][, ][+, //e
+	if (IsCpu6502())
+		return Cpu6502(uTotalCycles);	// Apple ][, ][+, //e, Clones
 	else
 		return Cpu65C02(uTotalCycles);	// Enhanced Apple //e
 }
@@ -660,6 +667,7 @@ void CpuSetSnapshot_v1(const BYTE A, const BYTE X, const BYTE Y, const BYTE P, c
 
 //
 
+#define SS_YAML_KEY_CPU_TYPE "Type"
 #define SS_YAML_KEY_REGA "A"
 #define SS_YAML_KEY_REGX "X"
 #define SS_YAML_KEY_REGY "Y"
@@ -668,38 +676,48 @@ void CpuSetSnapshot_v1(const BYTE A, const BYTE X, const BYTE Y, const BYTE P, c
 #define SS_YAML_KEY_REGPC "PC"
 #define SS_YAML_KEY_CUMULATIVECYCLES "Cumulative Cycles"
 
-std::string CpuGetSnapshotStructName(void)
+#define SS_YAML_VALUE_6502 "6502"
+#define SS_YAML_VALUE_65C02 "65C02"
+
+static std::string CpuGetSnapshotStructName(void)
 {
-	static const std::string name("CPU6502");
+	static const std::string name("CPU");
 	return name;
 }
 
-void CpuGetSnapshot(FILE* hFile)
+void CpuSaveSnapshot(YamlSaveHelper& yamlSaveHelper)
 {
-	fprintf(hFile, "%s:\n", CpuGetSnapshotStructName().c_str());
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGA, regs.a);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGX, regs.x);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGY, regs.y);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGP, regs.ps);
-	fprintf(hFile, " %s: 0x%02X\n", SS_YAML_KEY_REGS, (BYTE) regs.sp);
-	fprintf(hFile, " %s: 0x%04X\n", SS_YAML_KEY_REGPC, regs.pc);
-	fprintf(hFile, " %s: 0x%016llX\n", SS_YAML_KEY_CUMULATIVECYCLES, g_nCumulativeCycles);
+	regs.ps |= (AF_RESERVED | AF_BREAK);
+
+	YamlSaveHelper::Label state(yamlSaveHelper, "%s:\n", CpuGetSnapshotStructName().c_str());	
+	yamlSaveHelper.Save("%s: %s # NB. Currently ignored\n", SS_YAML_KEY_CPU_TYPE, IsCpu6502() ? SS_YAML_VALUE_6502 : SS_YAML_VALUE_65C02);
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_REGA, regs.a);
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_REGX, regs.x);
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_REGY, regs.y);
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_REGP, regs.ps);
+	yamlSaveHelper.Save("%s: 0x%02X\n", SS_YAML_KEY_REGS, (BYTE) regs.sp);
+	yamlSaveHelper.Save("%s: 0x%04X\n", SS_YAML_KEY_REGPC, regs.pc);
+	yamlSaveHelper.Save("%s: 0x%016llX\n", SS_YAML_KEY_CUMULATIVECYCLES, g_nCumulativeCycles);
 }
 
-void CpuSetSnapshot(YamlHelper& yamlHelper)
+void CpuLoadSnapshot(YamlLoadHelper& yamlLoadHelper)
 {
-	YamlHelper::YamlMap yamlMap(yamlHelper);
+	if (!yamlLoadHelper.GetSubMap(CpuGetSnapshotStructName()))
+		return;
 
-	regs.a  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGA);
-	regs.x  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGX);
-	regs.y  = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGY);
-	regs.ps = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGP);
-	regs.sp = (BYTE)  yamlMap.GetMapValueUINT(SS_YAML_KEY_REGS) + 0x100;
-	regs.pc = (SHORT) yamlMap.GetMapValueUINT(SS_YAML_KEY_REGPC);
+	yamlLoadHelper.GetMapValueSTRING(SS_YAML_KEY_CPU_TYPE);	// consume - not currently used
+	regs.a  = (BYTE)     yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGA);
+	regs.x  = (BYTE)     yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGX);
+	regs.y  = (BYTE)     yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGY);
+	regs.ps = (BYTE)     yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGP) | (AF_RESERVED | AF_BREAK);
+	regs.sp = (USHORT) ((yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGS) & 0xff) | 0x100);
+	regs.pc = (USHORT)   yamlLoadHelper.GetMapValueUINT(SS_YAML_KEY_REGPC);
 
 	CpuIrqReset();
 	CpuNmiReset();
-	g_nCumulativeCycles = yamlMap.GetMapValueUINT64(SS_YAML_KEY_CUMULATIVECYCLES);
+	g_nCumulativeCycles = yamlLoadHelper.GetMapValueUINT64(SS_YAML_KEY_CUMULATIVECYCLES);
+
+	yamlLoadHelper.PopMap();
 }
 
 //
